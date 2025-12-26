@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Navidad Extrema 27: Corregido</title>
+    <style>
+        body { margin: 0; background: #000; color: white; font-family: 'Arial Rounded MT Bold', sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; }
+        #game-container { position: relative; border: 10px solid #fff; border-radius: 20px; overflow: hidden; box-shadow: 0 0 20px rgba(255,255,255,0.5); }
+        canvas { display: block; background: #001d3d; }
+        .overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; z-index: 10; }
+        .btn { background: #d90429; color: white; border: none; padding: 15px 30px; font-size: 1.5em; margin: 10px; cursor: pointer; border-radius: 15px; box-shadow: 0 5px #8d021f; }
+        #hud { position: absolute; top: 15px; width: 100%; display: flex; justify-content: space-around; font-size: 1.5em; text-shadow: 2px 2px #000; pointer-events: none; z-index: 5; }
+        .hidden { display: none !important; }
+        #event-msg { position: absolute; top: 40%; width: 100%; text-align: center; font-size: 2em; color: #ffeb3b; opacity: 0; transition: 0.3s; pointer-events: none; z-index: 6; }
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <div id="hud" class="hidden">
+            <div>🎁 <span id="score">0</span></div>
+            <div id="lives-display">❤️ ❤️ ❤️</div>
+        </div>
+
+        <div id="event-msg"></div>
+
+        <div id="main-menu" class="overlay">
+            <h1 style="color: #ef233c; font-size: 3em;">🎄 NAVIDAD 27 🚀</h1>
+            <button class="btn" onclick="showLevelSelector()">¡EMPEZAR!</button>
+        </div>
+
+        <div id="level-menu" class="overlay hidden">
+            <h2>Dificultad</h2>
+            <button class="btn" onclick="initGame(1.2, 0.02)">Fácil ❄️</button>
+            <button class="btn" onclick="initGame(2.5, 0.04)">Difícil 🔥</button>
+        </div>
+
+        <div id="game-over" class="overlay hidden">
+            <h1 style="color: #d90429; font-size: 3em;">¡HO HO NO!</h1>
+            <p id="final-stats"></p>
+            <button class="btn" onclick="showLevelSelector()">Reintentar</button>
+        </div>
+
+        <canvas id="gameCanvas"></canvas>
+    </div>
+
+    <script>
+        const canvas = document.getElementById("gameCanvas");
+        const ctx = canvas.getContext("2d");
+        canvas.width = 450; canvas.height = 650;
+
+        let score = 0, lives = 3, isPlaying = false, items = [], particles = [], snow = [], clouds = [];
+        let baseSpeed = 1, spawnRate = 0.02, frame = 0, shake = 0, combo = 0;
+        let powerup = { magnet: 0, speed: 0, shield: 0, slow: 0 };
+        let lastX = 200, tilt = 0;
+
+        const player = { x: 200, y: 550, w: 70, h: 70 };
+
+        window.addEventListener("mousemove", (e) => {
+            if (!isPlaying) return;
+            const rect = canvas.getBoundingClientRect();
+            let newX = e.clientX - rect.left - player.w/2;
+            tilt = (newX - player.x) * 0.1; // Inclinación de Santa
+            player.x = newX;
+        });
+
+        function showLevelSelector() {
+            document.querySelectorAll('.overlay').forEach(e => e.classList.add('hidden'));
+            document.getElementById('level-menu').classList.remove('hidden');
+        }
+
+        function msg(text) {
+            const e = document.getElementById('event-msg');
+            e.innerText = text; e.style.opacity = 1;
+            setTimeout(() => e.style.opacity = 0, 1000);
+        }
+
+        function initGame(s, r) {
+            score = 0; lives = 3; items = []; particles = []; frame = 0; combo = 0;
+            powerup = { magnet: 0, speed: 0, shield: 0, slow: 0 };
+            baseSpeed = s; spawnRate = r;
+            document.querySelectorAll('.overlay').forEach(e => e.classList.add('hidden'));
+            document.getElementById('hud').classList.remove('hidden');
+            isPlaying = true;
+            updateHUD();
+            // Nubes iniciales
+            clouds = [{x: 10, y: 50}, {x: 200, y: 100}, {x: 350, y: 30}];
+        }
+
+        function updateHUD() {
+            document.getElementById('score').innerText = score;
+            document.getElementById('lives-display').innerText = "❤️".repeat(Math.max(0, lives));
+        }
+
+        function createItem() {
+            const x = Math.random() * (canvas.width - 50);
+            let type = 'good', emoji = "🎁";
+            const r = Math.random();
+
+            if (r < 0.25) { type = 'bomb'; emoji = "🧨"; }
+            else if (r < 0.30) { type = 'grinch'; emoji = "🤢"; }
+            else if (r < 0.33) { type = 'speed'; emoji = "🦌"; }
+            else if (r < 0.36) { type = 'magnet'; emoji = "🧲"; }
+            else if (r < 0.38) { type = 'shield'; emoji = "🛡️"; }
+            else if (r < 0.40) { type = 'slow'; emoji = "⏱️"; }
+            else if (r < 0.42) { type = 'mystery'; emoji = "❓"; }
+            else if (r > 0.97) { type = 'gold'; emoji = "👑"; }
+            else { emoji = ["🎁", "⭐", "🎄", "❄️"][Math.floor(Math.random()*4)]; }
+
+            items.push({ x, y: -50, speed: baseSpeed + Math.random(), emoji, type, vx: type === 'grinch' ? 2 : 0 });
+        }
+
+        function update() {
+            if (!isPlaying) return;
+            frame++;
+
+            // Ajuste de velocidad por tiempo lento
+            let effectiveSpawn = powerup.slow > 0 ? spawnRate * 0.5 : spawnRate;
+            if (Math.random() < effectiveSpawn) createItem();
+            
+            if (shake > 0) shake--;
+            if (powerup.speed > 0) powerup.speed--;
+            if (powerup.magnet > 0) powerup.magnet--;
+            if (powerup.shield > 0) powerup.shield--;
+            if (powerup.slow > 0) powerup.slow--;
+
+            items.forEach((item, i) => {
+                let m = powerup.slow > 0 ? 0.4 : 1;
+                item.y += item.speed * m;
+                item.x += item.vx * m;
+
+                if (item.type === 'grinch' && (item.x > canvas.width-40 || item.x < 0)) item.vx *= -1;
+
+                // Imán
+                if (powerup.magnet > 0 && typeIsGood(item.type)) {
+                    item.x += (player.x - item.x) * 0.05;
+                }
+
+                // Colisión
+                if (item.y > player.y && item.y < player.y + 70 && item.x > player.x - 20 && item.x < player.x + 60) {
+                    handleItem(item, i);
+                } else if (item.y > canvas.height) {
+                    if (typeIsGood(item.type)) { lives--; combo = 0; updateHUD(); }
+                    items.splice(i, 1);
+                    if (lives <= 0) endGame();
+                }
+            });
+
+            // Nubes
+            clouds.forEach(c => { c.x += 0.5; if(c.x > canvas.width) c.x = -100; });
+        }
+
+        function typeIsGood(t) { return t === 'good' || t === 'gold' || t === 'mystery'; }
+
+        function handleItem(item, i) {
+            if (item.type === 'bomb') {
+                if (powerup.shield > 0) { msg("🛡️ ¡ESCUDO!"); powerup.shield = 0; }
+                else { lives--; shake = 15; }
+            } else if (item.type === 'grinch') { score = Math.max(0, score - 50); msg("🤢 ¡GRINCH!"); }
+            else if (item.type === 'speed') { powerup.speed = 300; msg("🦌 ¡VELOZ!"); }
+            else if (item.type === 'magnet') { powerup.magnet = 300; msg("🧲 ¡IMÁN!"); }
+            else if (item.type === 'shield') { powerup.shield = 500; msg("🛡️ ¡ESCUDO!"); }
+            else if (item.type === 'slow') { powerup.slow = 300; msg("⏱️ ¡LENTO!"); }
+            else if (item.type === 'mystery') { Math.random() > 0.5 ? lives++ : lives--; msg("❓ ?"); }
+            else {
+                combo++;
+                score += (item.type === 'gold' ? 100 : 10);
+                if (combo % 5 === 0) msg("COMBO x" + combo);
+            }
+            items.splice(i, 1);
+            updateHUD();
+            if (lives <= 0) endGame();
+        }
+
+        function endGame() {
+            isPlaying = false;
+            document.getElementById('game-over').classList.remove('hidden');
+            document.getElementById('final-stats').innerText = "Puntos: " + score;
+        }
+
+        function draw() {
+            // Fondo dinámico
+            let sky = Math.sin(frame * 0.005) * 20 + 20;
+            ctx.fillStyle = `rgb(0, ${sky/2}, ${sky})`;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            ctx.save();
+            if (shake > 0) ctx.translate(Math.random()*10-5, Math.random()*10-5);
+
+            // Nubes y Nieve
+            ctx.font = "60px Arial";
+            clouds.forEach(c => ctx.fillText("☁️", c.x, c.y));
+            
+            ctx.fillStyle = "white";
+            if(snow.length < 50) snow.push({x: Math.random()*canvas.width, y: -10, r: Math.random()*2});
+            snow.forEach(s => {
+                s.y += 1; s.x += Math.sin(frame*0.01);
+                ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, Math.PI*2); ctx.fill();
+                if(s.y > canvas.height) s.y = -10;
+            });
+
+            // Santa con inclinación
+            ctx.save();
+            ctx.translate(player.x + 35, player.y + 35);
+            ctx.rotate(Math.max(-0.2, Math.min(0.2, tilt)));
+            ctx.font = "60px Arial";
+            ctx.fillText(powerup.speed > 0 ? "⚡🎅" : "🎅", -35, 25);
+            if(powerup.shield > 0) ctx.fillText("🛡️", -35, -30);
+            ctx.restore();
+
+            // Objetos
+            items.forEach(item => {
+                ctx.font = "40px Arial";
+                ctx.fillText(item.emoji, item.x, item.y);
+            });
+
+            ctx.restore();
+            update();
+            requestAnimationFrame(draw);
+        }
+        draw();
+    </script>
+</body>
+</html>
